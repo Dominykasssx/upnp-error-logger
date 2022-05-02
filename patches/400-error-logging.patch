@@ -1,0 +1,129 @@
+Index: miniupnpd-2.2.1/logger.c
+===================================================================
+--- /dev/null
++++ miniupnpd-2.2.1/logger.c
+@@ -0,0 +1,70 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sqlite3.h>
++#include "logger.h"
++sqlite3 *db;
++
++int flag = 0;
++
++int openDatabase()
++{
++    int rc;
++    char *zErrMsg = 0;
++
++    rc = sqlite3_open("/var/log/upnpdb.db", &db);
++
++    if( rc ){
++		sqlite3_close(db);
++		return 1;
++	}
++
++    char *sql = (char*) malloc(sizeof(char) * 250);
++        sprintf (sql,"CREATE TABLE IF NOT EXISTS Message (Id INTEGER PRIMARY KEY, eport TEXT, iaddr TEXT, iport TEXT, protocol TEXT, message TEXT, Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);");
++
++    rc = sqlite3_exec(db, sql, NULL, 0, &zErrMsg);
++    free(sql);
++    if( rc ){
++		sqlite3_close(db);
++		return 1;
++	}
++    else{
++    return 0;
++    }
++}
++
++int closeDatabase(){
++    return sqlite3_close(db);
++}
++
++int sqlQuery(char *message){
++    
++    char *zErrMsg = 0;
++    int rc;
++
++    rc = sqlite3_exec(db, message, 0, NULL, &zErrMsg);
++    free(message);
++   
++    if( rc != SQLITE_OK ){
++        return 1;
++        sqlite3_free(zErrMsg);
++    }
++    return 0;
++}
++
++int saveLog(char *eport, char *iaddr, char *iport, char *protocol, char *message){
++
++    int rc = openDatabase();
++    if (rc != 0){
++    closeDatabase();
++    return 0;
++    }
++    char *sql = (char*) malloc(sizeof(char) * 400);
++    sprintf (sql,"INSERT INTO Message (eport,iaddr,iport,protocol,message) VALUES ('%s','%s','%s','%s','%s');",eport,iaddr,iport,protocol,message);
++    sqlQuery(sql);
++    closeDatabase();
++    return 0;
++
++}
++
++
+Index: miniupnpd-2.2.1/logger.h
+===================================================================
+--- /dev/null
++++ miniupnpd-2.2.1/logger.h
+@@ -0,0 +1 @@
++int saveLog(char *eport, char *iaddr, char *iport, char *protocol, char *message);
+Index: miniupnpd-2.2.1/objects.mk
+===================================================================
+--- miniupnpd-2.2.1.orig/objects.mk
++++ miniupnpd-2.2.1/objects.mk
+@@ -3,7 +3,7 @@ BASEOBJS = miniupnpd.o upnphttp.o upnpde
+            upnpredirect.o getifaddr.o daemonize.o \
+            options.o upnppermissions.o minissdp.o natpmp.o pcpserver.o \
+            upnpglobalvars.o upnpevents.o upnputils.o getconnstatus.o \
+-           upnpstun.o upnppinhole.o pcplearndscp.o asyncsendto.o
++           upnpstun.o upnppinhole.o pcplearndscp.o asyncsendto.o logger.o
+ 
+ # sources in linux/ directory
+ LNXOBJS = getifstats.o ifacewatcher.o getroute.o
+Index: miniupnpd-2.2.1/upnpsoap.c
+===================================================================
+--- miniupnpd-2.2.1.orig/upnpsoap.c
++++ miniupnpd-2.2.1/upnpsoap.c
+@@ -34,6 +34,7 @@
+ #include "getconnstatus.h"
+ #include "upnpurns.h"
+ #include "upnputils.h"
++#include "logger.h"
+ 
+ /* utility function */
+ static int is_numeric(const char * s)
+@@ -554,18 +555,22 @@ AddPortMapping(struct upnphttp * h, cons
+ 		break;
+ 	case -4:
+ #ifdef IGD_V2
++		saveLog(ext_port, int_ip, int_port, protocol,"Conflict With Other Mechanisms");
+ 		SoapError(h, 729, "ConflictWithOtherMechanisms");
+ 		break;
+ #endif /* IGD_V2 */
+ 	case -3:	/* not permitted */
+ #ifdef IGD_V2
++		saveLog(ext_port, int_ip, int_port, protocol, "Action not authorized");
+ 		SoapError(h, 606, "Action not authorized");
+ 		break;
+ #endif /* IGD_V2 */
+ 	case -2:	/* already redirected */
++		saveLog(ext_port, int_ip, int_port, protocol, "Conflict In Mapping Entry");
+ 		SoapError(h, 718, "ConflictInMappingEntry");
+ 		break;
+ 	default:
++		saveLog(ext_port, int_ip, int_port, protocol, "Action Failed");
+ 		SoapError(h, 501, "ActionFailed");
+ 	}
+ }
